@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Smart Garden IoT - Khu Vườn Thông Minh</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- MQTT.js CDN -->
+  <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            garden: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    button, input, label, select, a {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .glass-card {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 1; }
+      50% { transform: scale(1.15); opacity: 0.5; }
+      100% { transform: scale(0.95); opacity: 1; }
+    }
+    #toast-msg {
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+  
+    /* SERVO STYLES */
+    .dir-btn {
+      padding: 10px;
+      border-radius: 12px;
+      border: 2px solid #334155;
+      background: #0f172a;
+      color: #cbd5e1;
+      font-size: 0.85rem;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .dir-btn.active-up {
+      background: #16a34a !important;
+      border-color: #4ade80 !important;
+      color: #fff !important;
+      box-shadow: 0 0 12px rgba(74, 222, 128, 0.4);
+    }
+    .dir-btn.active-down {
+      background: #2563eb !important;
+      border-color: #60a5fa !important;
+      color: #fff !important;
+      box-shadow: 0 0 12px rgba(96, 165, 250, 0.4);
+    }
+
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans flex flex-col selection:bg-emerald-500 selection:text-white">
+
+  <!-- ================= TOP HEADER ================= -->
+  <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      
+      <!-- Brand & Status -->
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-green-400 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
+          <i class="fa-solid fa-leaf text-xl"></i>
+        </div>
+        <div>
+          <h1 class="text-lg md:text-xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+            SMART GARDEN IoT
+          </h1>
+          <div class="flex items-center space-x-2 text-xs">
+            <span id="mqtt-status-badge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <span id="mqtt-status-dot" class="w-1.5 h-1.5 mr-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="mqtt-status-text">Đang kết nối Firebase & MQTT...</span>
+            </span>
+            <span class="text-amber-400 hidden sm:inline"><i class="fa-solid fa-fire text-amber-500 mr-1"></i>Firebase Live</span>
+            <span class="text-emerald-300 font-mono text-[11px] bg-slate-800/90 px-2.5 py-0.5 rounded-lg border border-emerald-500/30 hidden lg:inline" title="Địa chỉ cố định vĩnh viễn cho điện thoại khi cùng kết nối WiFi Cafe 68">
+              <i class="fa-solid fa-mobile-screen mr-1 text-emerald-400"></i>Điện thoại: <b>http://desktop-6rufa5s.local:8080</b>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="flex items-center space-x-2">
+        <!-- Email Alert Modal Toggle -->
+        <button onclick="toggleModal('modal-email')" title="Cài đặt Email nhận cảnh báo khẩn cấp" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-500/20 transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-envelope"></i>
+          <span class="hidden sm:inline" id="btn-email-text">Email Cảnh Báo</span>
+        </button>
+
+        <!-- Notification Permission Button -->
+        <button id="btn-request-notif" onclick="enableWebNotifications()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-500/20 transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-bell"></i>
+          <span id="notif-btn-text">Bật Chuông</span>
+        </button>
+
+        <!-- Test Sound -->
+        <button onclick="playAlarmSound()" title="Thử âm thanh còi báo" class="p-2 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+          <i class="fa-solid fa-volume-high text-cyan-400"></i>
+        </button>
+
+        <!-- Khôi phục màn hình TFT khi bị trắng -->
+        <button onclick="reinitTFTDisplay()" title="Khôi phục lại màn hình TFT nếu bị sụt áp làm trắng" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-700 hover:bg-cyan-600 text-white shadow transition flex items-center space-x-1.5 cursor-pointer">
+          <i class="fa-solid fa-rotate text-cyan-200"></i>
+          <span class="hidden md:inline">Khôi Phục TFT</span>
+        </button>
+
+        <!-- Settings Modal Toggle -->
+        <button onclick="toggleModal('modal-settings')" title="Cấu hình hệ thống" class="p-2 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+          <i class="fa-solid fa-gear text-slate-300"></i>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ================= BANNER CẢNH BÁO KHẨN CẤP ================= -->
+  <div id="emergency-banner" class="hidden bg-rose-600 text-white px-4 py-2.5 text-sm font-semibold flex items-center justify-between border-b border-rose-500 shadow-lg sticky top-[57px] z-30">
+    <div class="flex items-center space-x-2">
+      <i class="fa-solid fa-triangle-exclamation text-xl animate-bounce"></i>
+      <span id="emergency-banner-text">Cảnh báo: Thông số đã vượt ngưỡng cài đặt!</span>
+    </div>
+    <div class="flex items-center space-x-2">
+      <button onclick="dismissAlarm()" class="px-3 py-1 bg-rose-800 hover:bg-rose-900 rounded-lg text-xs font-bold transition">Tắt Chuông</button>
+    </div>
+  </div>
+
+  <!-- ================= FLOATING TOAST THÔNG BÁO ================= -->
+  <div id="toast-msg" class="fixed top-20 right-4 z-50 transform translate-x-full opacity-0 pointer-events-none transition-all duration-300 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-2 border border-emerald-400">
+    <i class="fa-solid fa-circle-check text-xl"></i>
+    <span id="toast-text" class="text-sm font-medium">Đã lưu cấu hình thành công!</span>
+  </div>
+
+  <!-- ================= MAIN CONTAINER ================= -->
+  <main class="max-w-7xl mx-auto px-4 py-6 flex-grow w-full space-y-6">
+
+    <!-- THỜI TIẾT ĐẮK LẮK REALTIME -->
+    <div class="glass-card rounded-2xl p-4 border border-blue-500/20 flex flex-col md:flex-row items-center gap-4">
+      <div class="flex items-center gap-4 flex-1">
+        <div class="w-12 h-12 rounded-xl bg-slate-800/80 flex items-center justify-center border border-slate-700">
+          <i class="fa-solid fa-cloud-sun-rain text-2xl text-blue-400"></i>
+        </div>
+        <div>
+          <div class="text-xs text-slate-400 uppercase tracking-wider">🌤️ Thời tiết Đắk Lắk (Buôn Ma Thuột)</div>
+          <div class="text-base font-bold text-white mt-0.5 flex flex-wrap gap-3">
+            <span>🌡️ <span id="daklak-temp-web" class="text-orange-300">--</span>°C</span>
+            <span>💧 <span id="daklak-hum-web" class="text-blue-300">--</span>%</span>
+            <span class="text-sky-300" id="daklak-desc-web">Đang tải...</span>
+          </div>
+          <div class="text-xs text-slate-500 mt-0.5">Cập nhật từ ESP32 mỗi 5 phút · Open-Meteo API</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1. BẢNG ĐIỀU KHIỂN CHẾ ĐỘ (MODE CONTROLLER) -->
+    <div class="glass-card rounded-2xl p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 border border-emerald-500/20">
+      <div class="flex items-center space-x-3 w-full md:w-auto">
+        <div class="w-12 h-12 rounded-xl bg-slate-800/80 flex items-center justify-center text-emerald-400 border border-slate-700">
+          <i id="mode-icon" class="fa-solid fa-robot text-2xl"></i>
+        </div>
+        <div>
+          <div class="text-xs font-medium text-slate-400 uppercase tracking-wider">Chế độ vận hành hiện tại</div>
+          <div id="mode-title" class="text-lg font-bold text-white flex items-center gap-2">
+            <span>TỰ ĐỘNG (AUTO)</span>
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode Selector Buttons -->
+      <div class="bg-slate-900/90 p-1 rounded-xl border border-slate-800 flex w-full md:w-auto">
+        <button id="btn-mode-auto" onclick="setMode('auto')" class="flex-1 md:flex-initial px-5 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center space-x-2 bg-emerald-600 text-white shadow-md">
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+          <span>Tự Động (Auto)</span>
+        </button>
+        <button id="btn-mode-manual" onclick="setMode('manual')" class="flex-1 md:flex-initial px-5 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center space-x-2 text-slate-400 hover:text-white">
+          <i class="fa-solid fa-hand"></i>
+          <span>Thủ Công (Manual)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 2. THẺ 5 THÔNG SỐ CẢM BIẾN REALTIME -->
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+          <i class="fa-solid fa-gauge-high text-emerald-400"></i>
+          Giám Sát 5 Cảm Biến Thời Gian Thực
+        </h2>
+        <span class="text-xs text-slate-400" id="last-update-time">Đang tải dữ liệu từ Firebase...</span>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
+        
+        <!-- Cảm biến 1: Nhiệt độ -->
+        <div id="card-temp" class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-amber-500/40 transition">
+          <div class="flex items-center justify-between text-slate-400">
+            <span class="text-xs font-semibold">Nhiệt Độ KK</span>
+            <div class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center text-sm">
+              <i class="fa-solid fa-temperature-half"></i>
+            </div>
+          </div>
+          <div class="my-3">
+            <div class="text-2xl md:text-3xl font-extrabold text-white">
+              <span id="val-temp">--</span><span class="text-lg font-medium text-slate-400">°C</span>
+            </div>
+            <div class="text-xs mt-1" id="badge-temp">
+              <span class="text-emerald-400 font-medium">Bình thường</span>
+            </div>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div id="bar-temp" class="bg-gradient-to-r from-emerald-500 to-amber-500 h-1.5 rounded-full" style="width: 50%"></div>
+          </div>
+        </div>
+
+        <!-- Cảm biến 2: Độ ẩm không khí -->
+        <div id="card-hum" class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-cyan-500/40 transition">
+          <div class="flex items-center justify-between text-slate-400">
+            <span class="text-xs font-semibold">Độ Ẩm KK</span>
+            <div class="w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-sm">
+              <i class="fa-solid fa-droplet"></i>
+            </div>
+          </div>
+          <div class="my-3">
+            <div class="text-2xl md:text-3xl font-extrabold text-white">
+              <span id="val-hum">--</span><span class="text-lg font-medium text-slate-400">%</span>
+            </div>
+            <div class="text-xs mt-1" id="badge-hum">
+              <span class="text-emerald-400 font-medium">Lý tưởng</span>
+            </div>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div id="bar-hum" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-1.5 rounded-full" style="width: 65%"></div>
+          </div>
+        </div>
+
+        <!-- Cảm biến 3: Cảm biến Mưa (KÈM NÚT ĐẢO CHIỀU) -->
+        <div id="card-rain" class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-blue-500/40 transition relative">
+          <div class="flex items-center justify-between text-slate-400">
+            <span class="text-xs font-semibold">Cảm Biến Mưa</span>
+            <div class="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center text-sm">
+              <i class="fa-solid fa-cloud-showers-heavy"></i>
+            </div>
+          </div>
+          <div class="my-2">
+            <div class="text-2xl md:text-3xl font-extrabold text-white">
+              <span id="val-rain">--</span><span class="text-lg font-medium text-slate-400">%</span>
+            </div>
+            <div class="text-xs mt-1 flex items-center justify-between" id="badge-rain">
+              <span class="text-slate-400 font-medium" id="rain-status-text">Tạnh ráo</span>
+            </div>
+          </div>
+          <button onclick="toggleRainInvert()" title="Bấm vào đây nếu cảm biến bị ngược" class="text-[10px] text-cyan-400 bg-cyan-950/60 hover:bg-cyan-900 px-2 py-0.5 rounded border border-cyan-800/60 flex items-center justify-center space-x-1 my-1">
+            <i class="fa-solid fa-arrows-rotate"></i>
+            <span id="rain-invert-btn-text">Đảo Chiều Cảm Biến</span>
+          </button>
+          <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div id="bar-rain" class="bg-gradient-to-r from-blue-400 to-indigo-500 h-1.5 rounded-full" style="width: 10%"></div>
+          </div>
+        </div>
+
+        <!-- Cảm biến 4: Cảm biến Ánh Sáng -->
+        <div id="card-light" class="glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-yellow-500/40 transition">
+          <div class="flex items-center justify-between text-slate-400">
+            <span class="text-xs font-semibold">Cường Độ Sáng</span>
+            <div class="w-7 h-7 rounded-lg bg-yellow-500/10 text-yellow-400 flex items-center justify-center text-sm">
+              <i class="fa-solid fa-sun"></i>
+            </div>
+          </div>
+          <div class="my-3">
+            <div class="text-2xl md:text-3xl font-extrabold text-white">
+              <span id="val-light">--</span><span class="text-lg font-medium text-slate-400">%</span>
+            </div>
+            <div class="text-xs mt-1" id="badge-light">
+              <span class="text-amber-400 font-medium">Đủ sáng</span>
+            </div>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div id="bar-light" class="bg-gradient-to-r from-amber-400 to-yellow-300 h-1.5 rounded-full" style="width: 75%"></div>
+          </div>
+        </div>
+
+        <!-- Cảm biến 5: Độ ẩm đất -->
+        <div id="card-soil" class="col-span-2 md:col-span-1 glass-card rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-500/40 transition">
+          <div class="flex items-center justify-between text-slate-400">
+            <span class="text-xs font-semibold">Độ Ẩm Đất</span>
+            <div class="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm">
+              <i class="fa-solid fa-seedling"></i>
+            </div>
+          </div>
+          <div class="my-3">
+            <div class="text-2xl md:text-3xl font-extrabold text-white">
+              <span id="val-soil">--</span><span class="text-lg font-medium text-slate-400">%</span>
+            </div>
+            <div class="text-xs mt-1" id="badge-soil">
+              <span class="text-emerald-400 font-medium">Đất ẩm tốt</span>
+            </div>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div id="bar-soil" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-1.5 rounded-full" style="width: 60%"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 3. KHU VỰC ĐIỀU KHIỂN 5 ĐẦU RA (5 LED) & CÀI ĐẶT NGƯỠNG -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- ================= 3A. BẢNG ĐIỀU KHIỂN 5 LED ================= -->
+      <div class="glass-card rounded-2xl p-5 border border-slate-800 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+              <i class="fa-solid fa-power-off text-emerald-400"></i>
+              Trạng Thái & Điều Khiển 5 LED Thiết Bị
+            </h2>
+            <span id="manual-notice" class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+              Chế độ Tự động
+            </span>
+          </div>
+
+          <div class="space-y-3">
+
+            <!-- LED 1: LED_BOM (Pin 16) -->
+            <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80">
+              <div class="flex items-center space-x-3">
+                <div id="icon-led-bom" class="w-10 h-10 rounded-lg bg-slate-800 text-slate-500 flex items-center justify-center transition">
+                  <i class="fa-solid fa-fan text-lg"></i>
+                </div>
+                <div>
+                  <div class="text-sm font-semibold text-white">LED 1: Bơm Làm Mát (GPIO 16)</div>
+                  <div class="text-xs text-slate-400">Tự bật khi Nhiệt độ &gt; Ngưỡng nhiệt</div>
+                </div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="switch-led-bom" onchange="toggleLed('bom', this.checked)" class="sr-only peer">
+                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+
+            <!-- LED 2: LED_DEN (Pin 17) -->
+            <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80">
+              <div class="flex items-center space-x-3">
+                <div id="icon-led-den" class="w-10 h-10 rounded-lg bg-slate-800 text-slate-500 flex items-center justify-center transition">
+                  <i class="fa-solid fa-lightbulb text-lg"></i>
+                </div>
+                <div>
+                  <div class="text-sm font-semibold text-white">LED 2: Đèn / Phun Ẩm (GPIO 17)</div>
+                  <div class="text-xs text-slate-400">Tự bật khi Độ ẩm KK &lt; Ngưỡng ẩm</div>
+                </div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="switch-led-den" onchange="toggleLed('den', this.checked)" class="sr-only peer">
+                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+
+            <!-- LED 3 / SERVO MÁI CHE GPIO 18 (CHUẨN GIAO DIỆN MẪU & LOGIC 2 NHỊP) -->
+            <div class="p-3.5 rounded-xl bg-slate-900/90 border border-sky-500/30 space-y-3 shadow-lg">
+              <!-- Top Row -->
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                  <div id="icon-led-mua" class="w-10 h-10 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center transition">
+                    <i class="fa-solid fa-umbrella text-lg"></i>
+                  </div>
+                  <div>
+                    <div class="text-sm font-bold text-white flex items-center gap-2">
+                      <span>SERVO · GPIO 18</span>
+                      <span class="text-[10px] px-2 py-0.5 rounded-full font-extrabold bg-sky-600 text-white">MÁI CHE</span>
+                    </div>
+                    <div class="text-xs text-slate-400 flex items-center gap-3 mt-0.5">
+                      <span>Góc hiện tại: <b id="curAngle" class="text-sky-400 font-bold">140°</b></span>
+                      <span>Đã lưu: <b id="savedInline" class="text-slate-300 font-semibold">140° / 90°</b></span>
+                    </div>
+                  </div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" id="switch-led-mua" onchange="toggleLed('mua', this.checked)" class="sr-only peer">
+                  <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
+                </label>
+              </div>
+
+              <!-- Direction Buttons (LÊN / XUỐNG) -->
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <button id="btnDirUp" onclick="selectDir('UP')" class="dir-btn active-up py-2.5 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer">
+                  <i class="fa-solid fa-angles-up"></i> LÊN (Thu mái - 2 nhịp)
+                </button>
+                <button id="btnDirDown" onclick="selectDir('DOWN')" class="dir-btn py-2.5 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer">
+                  <i class="fa-solid fa-angles-down"></i> XUỐNG (Che mưa)
+                </button>
+              </div>
+
+              <!-- Angle Display & Saved Pair -->
+              <div class="flex justify-between items-baseline pt-1">
+                <div class="text-3xl font-extrabold text-sky-400 tracking-tight" id="sliderVal">140°</div>
+                <div class="text-xs text-slate-400 font-medium" id="savedPair">Lên: 140° | Xuống: 90°</div>
+              </div>
+
+              <!-- Angle Range Slider (0 - 180) -->
+              <div>
+                <input id="angleSlider" type="range" min="0" max="180" value="140" class="w-full h-3 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-400" />
+                <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+                  <span>0° (Thu hết)</span>
+                  <span>90° (Xuống chuẩn)</span>
+                  <span>140° (Lên chuẩn)</span>
+                  <span>180° (Mở hết)</span>
+                </div>
+              </div>
+
+              <!-- Action Grid: LƯU LÊN / LƯU XUỐNG -->
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <button onclick="saveAngle('UP')" class="py-2.5 px-3 rounded-xl font-bold text-xs bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white flex items-center justify-center gap-1.5 transition shadow cursor-pointer">
+                  <i class="fa-solid fa-floppy-disk"></i> LƯU LÊN
+                </button>
+                <button onclick="saveAngle('DOWN')" class="py-2.5 px-3 rounded-xl font-bold text-xs bg-blue-700 hover:bg-blue-600 active:scale-95 text-white flex items-center justify-center gap-1.5 transition shadow cursor-pointer">
+                  <i class="fa-solid fa-floppy-disk"></i> LƯU XUỐNG
+                </button>
+              </div>
+
+              <!-- Message status box -->
+              <div class="text-center text-xs text-slate-400 italic pt-0.5" id="msgBox">
+                Lưu xong 2 góc: bấm XUỐNG hoặc LÊN (LÊN tự nhướn 2 nhịp chia đôi)
+              </div>
+            </div>
+
+            <!-- LED 4: LED_SANG (Pin 19) -->
+            <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80">
+              <div class="flex items-center space-x-3">
+                <div id="icon-led-sang" class="w-10 h-10 rounded-lg bg-slate-800 text-slate-500 flex items-center justify-center transition">
+                  <i class="fa-solid fa-sun text-lg"></i>
+                </div>
+                <div>
+                  <div class="text-sm font-semibold text-white">LED 4: Đèn Chiếu Sáng (GPIO 19)</div>
+                  <div class="text-xs text-slate-400">Tự bật khi Trời tối (Ánh sáng &lt; Ngưỡng)</div>
+                </div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="switch-led-sang" onchange="toggleLed('sang', this.checked)" class="sr-only peer">
+                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+
+            <!-- LED 5: LED_BOM_DAT (Pin 15) -->
+            <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80">
+              <div class="flex items-center space-x-3">
+                <div id="icon-led-bom-dat" class="w-10 h-10 rounded-lg bg-slate-800 text-slate-500 flex items-center justify-center transition">
+                  <i class="fa-solid fa-water text-lg"></i>
+                </div>
+                <div>
+                  <div class="text-sm font-semibold text-white">LED 5: Bơm Tưới Đất (GPIO 15)</div>
+                  <div class="text-xs text-slate-400">Tự bật khi Độ ẩm đất &lt; Ngưỡng đất khô</div>
+                </div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="switch-led-bom-dat" onchange="toggleLed('bom_dat', this.checked)" class="sr-only peer">
+                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= 3B. CÀI ĐẶT NGƯỠNG TỰ ĐỘNG ================= -->
+      <div class="glass-card rounded-2xl p-5 border border-slate-800 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+              <i class="fa-solid fa-sliders text-emerald-400"></i>
+              Cài Đặt Ngưỡng Tự Động & Kích Hoạt Cảnh Báo
+            </h2>
+            <span class="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+              Lưu Flash ESP32
+            </span>
+          </div>
+
+          <div class="space-y-4">
+            
+            <!-- Slider 1: Nhiệt độ -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-300">Ngưỡng Nhiệt Độ Bật Bơm & Báo Động:</span>
+                <span id="label-th-temp" class="text-amber-400 font-bold">32 °C</span>
+              </div>
+              <input type="range" id="th-temp" min="20" max="50" step="0.5" value="32" oninput="onSliderInput('th-temp', 'label-th-temp', '°C')" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500">
+              <div class="flex justify-between text-[10px] text-slate-400 mt-0.5">
+                <span>20°C</span>
+                <span>35°C</span>
+                <span>50°C</span>
+              </div>
+            </div>
+
+            <!-- Slider 2: Độ ẩm không khí -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-300">Ngưỡng Độ Ẩm KK Bật Đèn/Phun & Báo Động:</span>
+                <span id="label-th-hum" class="text-cyan-400 font-bold">50 %</span>
+              </div>
+              <input type="range" id="th-hum" min="20" max="90" step="1" value="50" oninput="onSliderInput('th-hum', 'label-th-hum', '%')" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+              <div class="flex justify-between text-[10px] text-slate-400 mt-0.5">
+                <span>20% (Khô)</span>
+                <span>55%</span>
+                <span>90% (Ẩm)</span>
+              </div>
+            </div>
+
+            <!-- Slider 3: Cảm biến mưa -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-300">Ngưỡng Mưa Bật Báo Mưa & Mái Che:</span>
+                <span id="label-th-rain" class="text-blue-400 font-bold">30 %</span>
+              </div>
+              <input type="range" id="th-rain" min="5" max="95" step="1" value="30" oninput="onSliderInput('th-rain', 'label-th-rain', '%')" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500">
+              <div class="flex justify-between text-[10px] text-slate-400 mt-0.5">
+                <span>5% (Mưa nhỏ)</span>
+                <span>50%</span>
+                <span>95% (Mưa to)</span>
+              </div>
+            </div>
+
+            <!-- Slider 4: Cảm biến Ánh sáng -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-300">Ngưỡng Trời Tối Bật Đèn Chiếu Sáng:</span>
+                <span id="label-th-light" class="text-yellow-400 font-bold">40 %</span>
+              </div>
+              <input type="range" id="th-light" min="5" max="90" step="1" value="40" oninput="onSliderInput('th-light', 'label-th-light', '%')" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-yellow-500">
+              <div class="flex justify-between text-[10px] text-slate-400 mt-0.5">
+                <span>5% (Tối mịt)</span>
+                <span>50%</span>
+                <span>90% (Râm mát)</span>
+              </div>
+            </div>
+
+            <!-- Slider 5: Độ ẩm đất -->
+            <div>
+              <div class="flex justify-between text-xs font-semibold mb-1">
+                <span class="text-slate-300">Ngưỡng Đất Khô Bật Máy Bơm Tưới Đất:</span>
+                <span id="label-th-soil" class="text-emerald-400 font-bold">35 %</span>
+              </div>
+              <input type="range" id="th-soil" min="10" max="80" step="1" value="35" oninput="onSliderInput('th-soil', 'label-th-soil', '%')" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+              <div class="flex justify-between text-[10px] text-slate-400 mt-0.5">
+                <span>10% (Cằn cỗi)</span>
+                <span>45%</span>
+                <span>80% (Ẩm ướt)</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Nút lưu ngưỡng -->
+        <div class="mt-6">
+          <button id="btn-save-thresholds" onclick="saveThresholds()" class="w-full py-3.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 active:scale-[0.98] transition flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-floppy-disk text-lg"></i>
+            <span>LƯU CẤU HÌNH NGƯỠNG XUỐNG ESP32</span>
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- 4. BIỂU ĐỒ 5 GIÁ TRỊ CẢM BIẾN REALTIME -->
+    <div class="glass-card rounded-2xl p-5 border border-slate-800">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-chart-line text-emerald-400"></i>
+            Biểu Đồ Xu Hướng 5 Giá Trị Cảm Biến Thời Gian Thực
+          </h2>
+          <p class="text-xs text-slate-400">Tự động cập nhật 20 mẫu đo liên tục</p>
+        </div>
+
+        <div class="flex flex-wrap gap-1 bg-slate-900/80 p-1 rounded-xl border border-slate-800 text-xs">
+          <button onclick="switchChartDataset('all')" id="btn-chart-all" class="px-3 py-1.5 rounded-lg font-medium bg-emerald-600 text-white">Tất Cả</button>
+          <button onclick="switchChartDataset('temp')" id="btn-chart-temp" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white">Nhiệt Độ</button>
+          <button onclick="switchChartDataset('hum')" id="btn-chart-hum" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white">Độ Ẩm KK</button>
+          <button onclick="switchChartDataset('rain')" id="btn-chart-rain" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white">Mưa</button>
+          <button onclick="switchChartDataset('light')" id="btn-chart-light" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white">Ánh Sáng</button>
+          <button onclick="switchChartDataset('soil')" id="btn-chart-soil" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white">Độ Ẩm Đất</button>
+        </div>
+      </div>
+
+      <div class="w-full h-72 md:h-80 relative">
+        <canvas id="gardenChart"></canvas>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ================= MODAL CẤU HÌNH ================= -->
+  <div id="modal-settings" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-emerald-400"></i> Cấu Hình Nâng Cao
+        </h3>
+        <button onclick="toggleModal('modal-settings')" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-sm">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">MQTT WebSocket Host</label>
+          <input type="text" id="cfg-mqtt-host" value="broker.hivemq.com" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">MQTT WebSocket Port (8000 cho HTTP / 8884 cho HTTPS)</label>
+          <input type="number" id="cfg-mqtt-port" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Topic Tiền Tố</label>
+          <input type="text" id="cfg-mqtt-prefix" value="smartgarden_cafe68" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Firebase Realtime Database URL</label>
+          <input type="text" id="cfg-firebase-url" value="https://smart-garden-iot-482c4-default-rtdb.asia-southeast1.firebasedatabase.app/garden.json" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs">
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-800">
+        <button onclick="toggleModal('modal-settings')" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300">Đóng</button>
+        <button onclick="saveAdvancedConfig()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white">Lưu & Kết Nối Lại</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL CẤU HÌNH EMAIL CẢNH BÁO ================= -->
+  <div id="modal-email" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-envelope text-indigo-400"></i> Cài Đặt Email Cảnh Báo Khẩn Cấp
+        </h3>
+        <button onclick="toggleModal('modal-email')" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4 text-sm">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Địa chỉ Email nhận cảnh báo:</label>
+          <input type="email" id="cfg-user-email" placeholder="ví dụ: ban_email@gmail.com" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-xs focus:ring-2 focus:ring-indigo-500 outline-none">
+          <p class="text-[11px] text-slate-400 mt-1">Hệ thống sẽ gửi email tự động khi nhiệt độ cao, mưa gió hoặc đất khô hạn.</p>
+        </div>
+
+        <div class="flex items-center justify-between p-3 bg-slate-800/60 rounded-xl border border-slate-700/60">
+          <div>
+            <div class="text-xs font-semibold text-slate-200">Kích hoạt gửi Email cảnh báo</div>
+            <div class="text-[11px] text-slate-400">Tự động gửi mail khi thông số vượt ngưỡng</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="cfg-email-enabled" class="sr-only peer" checked>
+            <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+          </label>
+        </div>
+
+        <div class="p-3 bg-indigo-950/40 border border-indigo-800/50 rounded-xl text-xs text-indigo-300 space-y-1">
+          <div class="font-semibold flex items-center gap-1.5 text-indigo-200">
+            <i class="fa-solid fa-circle-info"></i> Lưu ý kích hoạt lần đầu:
+          </div>
+          <p class="leading-relaxed">Khi gửi lần đầu tiên, dịch vụ FormSubmit sẽ gửi 1 email xác thực có nút <b>Activate Form</b> vào hòm thư của bạn. Bấm <b>Activate</b> một lần duy nhất là hoàn tất!</p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between pt-3 border-t border-slate-800">
+        <button id="btn-test-email" onclick="testSendEmail()" class="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-indigo-300 border border-indigo-700/50 flex items-center gap-1.5 transition">
+          <i class="fa-solid fa-paper-plane"></i>
+          <span>Gửi Thử Email Test</span>
+        </button>
+        <div class="flex space-x-2">
+          <button onclick="toggleModal('modal-email')" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-400">Hủy</button>
+          <button onclick="saveEmailConfig()" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-md shadow-indigo-600/30">Lưu Email</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="bg-slate-900 border-t border-slate-800 py-4 text-center text-xs text-slate-400">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <span>🌱 Smart Garden IoT Platform • ESP32 & MQTT & Firebase & ThingsBoard</span>
+      <span>Hỗ trợ máy tính & điện thoại di động</span>
+    </div>
+  </footer>
+
+  <!-- ================= JAVASCRIPT LOGIC ================= -->
+  <script>
+    // Xóa cổng cũ nếu bị lưu 8884 trên môi trường file:// hoặc http://
+    if (window.location.protocol !== 'https:') {
+      if (localStorage.getItem('cfg_mqtt_port') === '8884') {
+        localStorage.setItem('cfg_mqtt_port', '8000');
+      }
+    }
+
+    const defaultPort = (window.location.protocol === 'https:') ? 8884 : 8000;
+    let mqttHost   = localStorage.getItem('cfg_mqtt_host')   || 'broker.hivemq.com';
+    let mqttPort   = parseInt(localStorage.getItem('cfg_mqtt_port')) || defaultPort;
+    let topicPrefix= localStorage.getItem('cfg_mqtt_prefix') || 'smartgarden_cafe68';
+    let firebaseUrl= localStorage.getItem('cfg_firebase_url')|| 'https://smart-garden-iot-482c4-default-rtdb.asia-southeast1.firebasedatabase.app/garden.json';
+
+    let isRainInverted = localStorage.getItem('cfg_rain_inverted') === 'true';
+
+    let currentMode = 'auto';
+    let currentLeds = { bom: 0, den: 0, mua: 0, sang: 0, bom_dat: 0 };
+    let currentThresholds = { temp: 32.0, hum: 50.0, rain: 30, light: 40, soil: 35 };
+
+    // Cấu hình Email cảnh báo
+    let userEmail = localStorage.getItem('cfg_user_email') || 'th3110206@gmail.com';
+    let isEmailEnabled = (localStorage.getItem('cfg_email_enabled') !== 'false');
+    let lastEmailSentTime = 0;
+
+    // Khóa chống nảy công tắc & chế độ do race condition từ Firebase/MQTT
+    const userSwitchLocks = {}; // { 'bom': { val: 0, expires: timestamp }, ... }
+    let userLockedMode = null;
+    let modeLockExpires = 0;
+
+    let isUserEditingThresholds = false;
+    let editingTimeout = null;
+
+    let mqttClient = null;
+    let gardenChart = null;
+    let audioCtx = null;
+    let isAlarmTriggered = false;
+
+    const topicStatus     = `${topicPrefix}/status`;
+    const topicControl    = `${topicPrefix}/control`;
+    const topicThresholds = `${topicPrefix}/thresholds`;
+
+    // 1. KHỞI TẠO BIỂU ĐỒ (TỐI ƯU SIÊU MƯỢT KHÔNG GIẬT LAG)
+    function initChart() {
+      const ctx = document.getElementById('gardenChart').getContext('2d');
+      gardenChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            { label: 'Nhiệt độ (°C)', borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.1)', data: [], tension: 0.35, borderWidth: 2 },
+            { label: 'Độ ẩm KK (%)', borderColor: '#06b6d4', backgroundColor: 'rgba(6, 182, 212, 0.1)', data: [], tension: 0.35, borderWidth: 2 },
+            { label: 'Mưa (%)', borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', data: [], tension: 0.35, borderWidth: 2 },
+            { label: 'Ánh sáng (%)', borderColor: '#eab308', backgroundColor: 'rgba(234, 179, 8, 0.1)', data: [], tension: 0.35, borderWidth: 2 },
+            { label: 'Độ ẩm đất (%)', borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', data: [], tension: 0.35, borderWidth: 2 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false, // Tắt hiệu ứng co giãn giật cục để vẽ cực mượt
+          scales: {
+            x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+            y: { min: 0, max: 100, grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8', font: { size: 10 } } }
+          },
+          plugins: { legend: { labels: { color: '#cbd5e1', font: { size: 11 }, boxWidth: 12 } } }
+        }
+      });
+    }
+
+    let lastChartUpdate = 0;
+    function addChartData(timeStr, t, h, r, l, s) {
+      if (!gardenChart) return;
+      const nowMs = Date.now();
+      // Gom nhịp vẽ mỗi 2 giây để giao diện mượt mà tuyệt đối
+      if (nowMs - lastChartUpdate < 2000 && gardenChart.data.labels.length > 0) return;
+      lastChartUpdate = nowMs;
+
+      if (gardenChart.data.labels.length >= 20) {
+        gardenChart.data.labels.shift();
+        gardenChart.data.datasets.forEach(ds => ds.data.shift());
+      }
+      gardenChart.data.labels.push(timeStr);
+      gardenChart.data.datasets[0].data.push(t);
+      gardenChart.data.datasets[1].data.push(h);
+      gardenChart.data.datasets[2].data.push(r);
+      gardenChart.data.datasets[3].data.push(l);
+      gardenChart.data.datasets[4].data.push(s);
+      gardenChart.update('none'); // Cập nhật trực tiếp không tweening
+    }
+
+    function switchChartDataset(type) {
+      ['all', 'temp', 'hum', 'rain', 'light', 'soil'].forEach(id => {
+        const btn = document.getElementById(`btn-chart-${id}`);
+        if (btn) {
+          btn.className = (id === type) 
+            ? "px-3 py-1.5 rounded-lg font-medium bg-emerald-600 text-white" 
+            : "px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-white";
+        }
+      });
+
+      if (!gardenChart) return;
+      const mapIndex = { 'temp': 0, 'hum': 1, 'rain': 2, 'light': 3, 'soil': 4 };
+      if (type === 'all') {
+        gardenChart.data.datasets.forEach(ds => ds.hidden = false);
+      } else {
+        const activeIdx = mapIndex[type];
+        gardenChart.data.datasets.forEach((ds, idx) => {
+          ds.hidden = (idx !== activeIdx);
+        });
+      }
+      gardenChart.update();
+    }
+
+    // 2. KẾT NỐI MQTT OVER WEBSOCKET
+    function connectMQTT() {
+      const statusBadge = document.getElementById('mqtt-status-badge');
+      const statusDot   = document.getElementById('mqtt-status-dot');
+      const statusText  = document.getElementById('mqtt-status-text');
+
+      const protocol = (mqttPort === 8884 || window.location.protocol === 'https:') ? 'wss' : 'ws';
+      const effectivePort = (protocol === 'wss') ? 8884 : 8000;
+      const wsUrl = `${protocol}://${mqttHost}:${effectivePort}/mqtt`;
+      const clientId = 'garden_web_' + Math.random().toString(16).substr(2, 8);
+
+      console.log(`[MQTT] Đang thử kết nối ${wsUrl}`);
+
+      if (mqttClient) {
+        try { mqttClient.end(); } catch(e){}
+      }
+
+      try {
+        mqttClient = mqtt.connect(wsUrl, {
+          clientId: clientId,
+          clean: true,
+          connectTimeout: 5000,
+          reconnectPeriod: 4000
+        });
+
+        mqttClient.on('connect', () => {
+          console.log('[MQTT] Đã kết nối MQTT thành công!');
+          statusText.innerText = "Trực tuyến (MQTT + Firebase)";
+          statusBadge.className = "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+          statusDot.className = "w-1.5 h-1.5 mr-1.5 rounded-full bg-emerald-400";
+
+          mqttClient.subscribe(topicStatus);
+          mqttClient.subscribe("smartgarden_cafe68/status");
+          console.log("[MQTT] Da lang nghe ca topicStatus va smartgarden_cafe68/status");
+        });
+
+        mqttClient.on('message', (topic, message) => {
+          if (topic === topicStatus || topic.endsWith('/status') || topic.includes('status')) {
+            lastMqttDataTime = Date.now();
+            handleStatusPayload(message.toString());
+          }
+        });
+
+        mqttClient.on('error', (err) => {
+          console.warn('[MQTT Error]', err);
+        });
+      } catch(err) {
+        console.warn('MQTT init error:', err);
+      }
+    }
+
+    // 3. TỰ ĐỘNG ĐỒNG BỘ LIÊN TỤC TỪ FIREBASE REALTIME DATABASE (KHÔNG BAO GIỜ MẤT KẾT NỐI)
+    let lastPollSuccess = false;
+    let lastMqttDataTime = 0;
+    let lastSseDataTime = 0;
+    let servoLockExpires = 0;
+    let latestGardenState = {};
+    let sseSource = null;
+
+    function initFirebaseLiveStream() {
+      if (!firebaseUrl || typeof EventSource === 'undefined') return;
+      try {
+        if (sseSource) {
+          try { sseSource.close(); } catch(e){}
+        }
+        sseSource = new EventSource(firebaseUrl);
+        sseSource.addEventListener('put', (e) => {
+          try {
+            const parsed = JSON.parse(e.data);
+            if (!parsed) return;
+            lastSseDataTime = Date.now();
+            if (parsed.path === '/' && parsed.data && typeof parsed.data === 'object') {
+              Object.assign(latestGardenState, parsed.data);
+              if (latestGardenState.temp !== undefined) {
+                handleStatusPayload(latestGardenState);
+              }
+            } else if (parsed.path && parsed.path.length > 1) {
+              const key = parsed.path.slice(1).split('/')[0];
+              if (parsed.data === null) delete latestGardenState[key];
+              else latestGardenState[key] = parsed.data;
+              if (latestGardenState.temp !== undefined) {
+                handleStatusPayload(latestGardenState);
+              }
+            }
+          } catch(err){}
+        });
+        sseSource.addEventListener('patch', (e) => {
+          try {
+            const parsed = JSON.parse(e.data);
+            if (parsed && parsed.data && typeof parsed.data === 'object') {
+              lastSseDataTime = Date.now();
+              Object.assign(latestGardenState, parsed.data);
+              if (latestGardenState.temp !== undefined) {
+                handleStatusPayload(latestGardenState);
+              }
+            }
+          } catch(err){}
+        });
+        sseSource.onerror = () => {
+          // Fallback tự động sang polling
+        };
+      } catch (err) {
+        console.warn('Firebase SSE notice:', err);
+      }
+    }
+
+    function pollFirebaseData() {
+      if (!firebaseUrl) return;
+      // Tránh poll thừa khi MQTT hoặc SSE vừa đẩy dữ liệu mới trong 3.5 giây qua
+      const now = Date.now();
+      if ((mqttClient && mqttClient.connected && (now - lastMqttDataTime < 3500)) || (now - lastSseDataTime < 3500)) {
+        return;
+      }
+      fetch(firebaseUrl)
+        .then(response => {
+          if (!response.ok) throw new Error('Network error');
+          return response.json();
+        })
+        .then(data => {
+          if (data && (data.temp !== undefined || data.soil !== undefined)) {
+            lastPollSuccess = true;
+            // Nếu MQTT chưa kết nối, hiển thị trạng thái Trực Tuyến qua Firebase
+            if (!mqttClient || !mqttClient.connected) {
+              const statusBadge = document.getElementById('mqtt-status-badge');
+              const statusDot   = document.getElementById('mqtt-status-dot');
+              const statusText  = document.getElementById('mqtt-status-text');
+              if (statusText) statusText.innerText = "Trực tuyến (Firebase Cloud)";
+              if (statusBadge) statusBadge.className = "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+              if (statusDot) statusDot.className = "w-1.5 h-1.5 mr-1.5 rounded-full bg-emerald-400";
+            }
+
+            // Đồng bộ dữ liệu hiển thị
+            handleStatusPayload(data);
+          }
+        })
+        .catch(err => {
+          // Dự phòng qua Server Proxy nếu đang mở qua http://localhost:8080
+          if (window.location.protocol.startsWith('http')) {
+            fetch('/api/garden-data')
+              .then(r => r.json())
+              .then(d => {
+                if (d && (d.temp !== undefined || d.soil !== undefined)) {
+                  handleStatusPayload(d);
+                }
+              })
+              .catch(e => {});
+          }
+        });
+    }
+
+    // 4. XỬ LÝ DỮ LIỆU TELEMETRY
+    function handleStatusPayload(jsonStr) {
+      try {
+        const raw = (typeof jsonStr === 'string') ? JSON.parse(jsonStr) : jsonStr;
+        if (!raw || typeof raw !== 'object') return;
+
+        // Chuẩn hóa leds từ MQTT vào flat keys để không xung đột với Firebase
+        if (raw.leds && typeof raw.leds === 'object') {
+          if (raw.leds.bom !== undefined) latestGardenState.led_bom = raw.leds.bom;
+          if (raw.leds.den !== undefined) latestGardenState.led_den = raw.leds.den;
+          if (raw.leds.mua !== undefined) latestGardenState.led_mua = raw.leds.mua;
+          if (raw.leds.sang !== undefined) latestGardenState.led_sang = raw.leds.sang;
+          if (raw.leds.bom_dat !== undefined) latestGardenState.led_bom_dat = raw.leds.bom_dat;
+        }
+        const cleanRaw = Object.assign({}, raw);
+        delete cleanRaw.leds;
+        Object.assign(latestGardenState, cleanRaw);
+        const data = latestGardenState;
+
+        // Chỉ cập nhật giao diện cảm biến khi đã có đủ dữ liệu hợp lệ
+        if (data.temp === undefined || data.hum === undefined) return;
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('vi-VN', { hour12: false });
+        document.getElementById('last-update-time').innerText = `Cập nhật: ${timeStr}`;
+
+        const temp = parseFloat(data.temp) || 0;
+        const hum  = parseFloat(data.hum)  || 0;
+        
+        let rawRainVal = parseInt(data.rain) || 0;
+        let rain = isRainInverted ? Math.max(0, 100 - rawRainVal) : rawRainVal;
+
+        const light= parseInt(data.light)  || 0;
+        const soil = parseInt(data.soil)   || 0;
+
+        // Thời tiết Đắk Lắk từ Firebase (ESP32 cập nhật mỗi 5 phút)
+        if (data.daklak_temp !== undefined) {
+          const el = document.getElementById('daklak-temp-web');
+          if (el) el.innerText = parseFloat(data.daklak_temp).toFixed(1);
+        }
+        if (data.daklak_hum !== undefined) {
+          const el = document.getElementById('daklak-hum-web');
+          if (el) el.innerText = data.daklak_hum;
+        }
+        if (data.daklak_desc !== undefined) {
+          const el = document.getElementById('daklak-desc-web');
+          if (el) el.innerText = data.daklak_desc;
+        }
+
+        document.getElementById('val-temp').innerText = temp.toFixed(1);
+        document.getElementById('val-hum').innerText  = hum.toFixed(0);
+        document.getElementById('val-rain').innerText = rain;
+        document.getElementById('val-light').innerText= light;
+        document.getElementById('val-soil').innerText = soil;
+
+        document.getElementById('bar-temp').style.width  = Math.min(temp * 2, 100) + '%';
+        document.getElementById('bar-hum').style.width   = hum + '%';
+        document.getElementById('bar-rain').style.width  = rain + '%';
+        document.getElementById('bar-light').style.width = light + '%';
+        document.getElementById('bar-soil').style.width  = soil + '%';
+
+        document.getElementById('badge-temp').innerHTML = (temp >= currentThresholds.temp) 
+          ? '<span class="text-rose-400 font-bold animate-pulse">Quá nóng! (&gt;Ngưỡng)</span>' 
+          : '<span class="text-emerald-400">Bình thường</span>';
+
+        document.getElementById('badge-hum').innerHTML  = (hum <= currentThresholds.hum) 
+          ? '<span class="text-amber-400 font-bold">Khô hạn (&lt;Ngưỡng)</span>' 
+          : '<span class="text-emerald-400">Lý tưởng</span>';
+
+        const rainStatus = document.getElementById('rain-status-text');
+        if (rain >= currentThresholds.rain) {
+          rainStatus.innerHTML = '<span class="text-blue-400 font-bold animate-pulse">ĐANG CÓ MƯA!</span>';
+        } else {
+          rainStatus.innerText = 'Trời tạnh ráo';
+        }
+
+        document.getElementById('badge-light').innerHTML= (light <= currentThresholds.light) 
+          ? '<span class="text-indigo-400 font-semibold">Trời tối (&lt;Ngưỡng)</span>' 
+          : '<span class="text-amber-400">Đủ sáng</span>';
+
+        document.getElementById('badge-soil').innerHTML = (soil <= currentThresholds.soil) 
+          ? '<span class="text-rose-400 font-bold animate-pulse">Đất khô (&lt;Ngưỡng)</span>' 
+          : '<span class="text-emerald-400">Độ ẩm tốt</span>';
+
+        addChartData(timeStr, temp, hum, rain, light, soil);
+
+        // Đồng bộ chế độ (ưu tiên lựa chọn của người dùng nếu vừa bấm)
+        if (userLockedMode && Date.now() < modeLockExpires) {
+          applyModeUI(userLockedMode);
+        } else if (data.mode) {
+          userLockedMode = null;
+          applyModeUI(data.mode);
+        }
+
+        // Cập nhật trạng thái đèn (luôn ưu tiên flat keys đã chuẩn hóa)
+        let ledsObj = {
+          bom: data.led_bom,
+          den: data.led_den,
+          mua: data.led_mua,
+          sang: data.led_sang,
+          bom_dat: data.led_bom_dat
+        };
+        if (ledsObj.bom !== undefined) {
+          currentLeds = ledsObj;
+          updateLedSwitchesUI(ledsObj);
+        }
+
+        // Cập nhật trạng thái Servo Mái Che (GPIO 18) - tôn trọng khóa thao tác người dùng
+        if (Date.now() > servoLockExpires) {
+          if (data.servo_angle !== undefined) {
+            const curEl = document.getElementById('curAngle');
+            if (curEl) curEl.innerText = `${data.servo_angle}°`;
+            
+            const slider = document.getElementById('angleSlider');
+            const sliderVal = document.getElementById('sliderVal');
+            if (slider && sliderVal && document.activeElement !== slider) {
+              slider.value = data.servo_angle;
+              sliderVal.innerText = `${data.servo_angle}°`;
+            }
+          }
+          if (data.servo_dir) {
+            currentDir = data.servo_dir.toUpperCase();
+            updateDirUI();
+          }
+        }
+        if (data.goc_len_luu !== undefined) gocLen = data.goc_len_luu;
+        if (data.goc_xuong_luu !== undefined) gocXuong = data.goc_xuong_luu;
+        
+        const spInline = document.getElementById('savedInline');
+        const spPair = document.getElementById('savedPair');
+        if (spInline) spInline.innerText = `${gocLen}° / ${gocXuong}°`;
+        if (spPair) spPair.innerText = `Lên: ${gocLen}° | Xuống: ${gocXuong}°`;
+
+        if (data.servo_step) {
+          const msgBox = document.getElementById('msgBox');
+          if (msgBox) msgBox.innerText = "Đang nhướn 2 nhịp kéo mái che...";
+        }
+
+        if (data.thresholds && !isUserEditingThresholds) {
+          applyThresholdsUI(data.thresholds);
+        }
+
+        checkSafetyAlerts(temp, hum, rain, light, soil);
+      } catch (e) {
+        console.error('[Lỗi parse status]', e);
+      }
+    }
+
+    // 5. KIỂM TRA CẢNH BÁO & TỰ ĐỘNG GỬI EMAIL
+    let lastNotifTime = 0;
+    function checkSafetyAlerts(temp, hum, rain, light, soil) {
+      let alerts = [];
+
+      if (temp >= currentThresholds.temp) {
+        alerts.push(`🔥 Nhiệt độ (${temp.toFixed(1)}°C) vượt ngưỡng (${currentThresholds.temp}°C)!`);
+      }
+      if (hum <= currentThresholds.hum) {
+        alerts.push(`💧 Độ ẩm KK (${hum.toFixed(0)}%) thấp hơn ngưỡng (${currentThresholds.hum}%)!`);
+      }
+      if (rain >= currentThresholds.rain) {
+        alerts.push(`🌧️ Có mưa (${rain}%) vượt ngưỡng (${currentThresholds.rain}%)!`);
+      }
+      if (soil <= currentThresholds.soil) {
+        alerts.push(`🥀 Độ ẩm đất (${soil}%) quá khô, dưới ngưỡng (${currentThresholds.soil}%)!`);
+      }
+
+      const banner = document.getElementById('emergency-banner');
+      const bannerText = document.getElementById('emergency-banner-text');
+
+      if (alerts.length > 0) {
+        banner.classList.remove('hidden');
+        bannerText.innerHTML = alerts.join(" &bull; ");
+        if (!isAlarmTriggered) playAlarmSound();
+
+        const now = Date.now();
+        if (now - lastNotifTime > 40000) {
+          lastNotifTime = now;
+          triggerWebNotification("CẢNH BÁO KHU VƯỜN THÔNG MINH!", alerts[0]);
+        }
+
+        // Tự động kích hoạt gửi Email cảnh báo (chống spam: tối đa 1 email mỗi 45 giây)
+        if (isEmailEnabled && userEmail && (now - lastEmailSentTime > 45000)) {
+          lastEmailSentTime = now;
+          triggerEmailAlert(alerts, { temp, hum, rain, light, soil });
+        }
+      } else {
+        banner.classList.add('hidden');
+        isAlarmTriggered = false;
+      }
+    }
+
+    function dismissAlarm() {
+      isAlarmTriggered = true;
+      document.getElementById('emergency-banner').classList.add('hidden');
+    }
+
+    function playAlarmSound() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const now = audioCtx.currentTime;
+        [0, 0.18, 0.36].forEach((delay, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(idx % 2 === 0 ? 880 : 660, now + delay);
+          gain.gain.setValueAtTime(0.3, now + delay);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + delay + 0.14);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + delay);
+          osc.stop(now + delay + 0.15);
+        });
+      } catch(e){}
+    }
+
+    function enableWebNotifications() {
+      if (!("Notification" in window)) {
+        alert("Trình duyệt không hỗ trợ Web Notification.");
+        return;
+      }
+      Notification.requestPermission().then(permission => {
+        if (permission === "granted") {
+          showToast("Đã cấp quyền cảnh báo thành công!");
+          document.getElementById('notif-btn-text').innerText = "Chuông Bật";
+          document.getElementById('btn-request-notif').className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-800 text-emerald-200 border border-emerald-600 transition flex items-center space-x-1.5";
+          new Notification("Smart Garden IoT", {
+            body: "Hệ thống cảnh báo đã kích hoạt! Bạn sẽ nhận thông báo khi vượt ngưỡng.",
+            icon: "https://cdn-icons-png.flaticon.com/512/628/628324.png"
+          });
+        }
+      });
+    }
+
+    function triggerWebNotification(title, msg) {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(title, {
+          body: msg,
+          icon: "https://cdn-icons-png.flaticon.com/512/628/628324.png",
+          vibrate: [200, 100, 200]
+        });
+      }
+    }
+
+    // ================= EMAIL ALERT DISPATCH (SIÊU TỐC) =================
+    async function sendEmailApi(toEmail, subject, message) {
+      let sent = false;
+      let lastErrMsg = '';
+
+      // Gọi đồng thời hoặc ưu tiên server nội bộ với timeout siêu ngắn 2.5 giây
+      const hostOrigin = (window.location.origin && window.location.origin.startsWith('http')) ? `${window.location.origin}/api/send-email` : null;
+      const candidateEndpoints = [
+        hostOrigin,
+        'http://localhost:8080/api/send-email',
+        'http://127.0.0.1:8080/api/send-email',
+        'http://desktop-6rufa5s.local:8080/api/send-email',
+        'http://192.168.1.9:8080/api/send-email'
+      ].filter(Boolean);
+
+      // Thử gọi nhanh các endpoint
+      for (const ep of candidateEndpoints) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2500);
+          const resp = await fetch(ep, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ to: toEmail, subject: subject, message: message }),
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          if (resp.ok) {
+            const resJson = await resp.json();
+            if (resJson.success) {
+              sent = true;
+              console.log(`[EMAIL OK] Gửi thành công siêu tốc qua: ${ep}`);
+              break;
+            }
+          }
+        } catch (err) {}
+      }
+
+      // Thông báo đẩy ntfy.sh chạy ngầm không chặn luồng
+      fetch('https://ntfy.sh/smartgarden_daklak_alert', {
+        method: 'POST',
+        headers: { 'Title': subject, 'Priority': 'urgent', 'Tags': 'warning,seedling' },
+        body: message
+      }).catch(e => {});
+
+      // Fallback FormSubmit nếu không có server Python
+      if (!sent) {
+        try {
+          const directResp = await fetch("https://formsubmit.co/ajax/" + encodeURIComponent(toEmail), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({
+              _subject: subject,
+              message: message,
+              he_thong: 'Smart Garden IoT Platform'
+            })
+          });
+          if (directResp.ok) sent = true;
+        } catch (e) {}
+      }
+
+      return { success: sent, error: lastErrMsg };
+    }
+
+    function reinitTFTDisplay() {
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicControl, JSON.stringify({ cmd_reinit_tft: 1 }));
+      }
+      syncToFirebase({ cmd_reinit_tft: 1 });
+      showToast("🔄 Đã gửi lệnh khôi phục màn hình TFT ESP32!");
+    }
+
+
+    async function triggerEmailAlert(alerts, data) {
+      if (!userEmail) return;
+      const nowStr = new Date().toLocaleString('vi-VN');
+      const subject = `⚠️ [SMART GARDEN CẢNH BÁO] ${alerts[0].replace(/[^\w\s\u00C0-\u1EF9]/gi, '')}`;
+      const message = `
+HỆ THỐNG SMART GARDEN PHÁT HIỆN SỰ CỐ KHẨN CẤP!
+--------------------------------------------------
+Thời gian phát hiện: ${nowStr}
+
+DANH SÁCH CẢNH BÁO VƯỢT NGƯỠNG:
+${alerts.map(a => ' - ' + a).join('\n')}
+
+THÔNG SỐ CẢM BIẾN THỜI GIAN THỰC:
+ - Nhiệt độ KK: ${data.temp.toFixed(1)} °C (Ngưỡng an toàn: ${currentThresholds.temp} °C)
+ - Độ ẩm KK: ${data.hum.toFixed(0)} % (Ngưỡng an toàn: ${currentThresholds.hum} %)
+ - Cảm biến mưa: ${data.rain} % (Ngưỡng phát hiện: ${currentThresholds.rain} %)
+ - Cường độ sáng: ${data.light} % (Ngưỡng sáng: ${currentThresholds.light} %)
+ - Độ ẩm đất: ${data.soil} % (Ngưỡng giữ ẩm: ${currentThresholds.soil} %)
+
+Hệ thống đang tự động kích hoạt thiết bị tương ứng để bảo vệ khu vườn.
+(Smart Garden IoT Platform - ESP32 Multi-Cloud Sync)
+      `.trim();
+
+      console.log('[EMAIL] Đang gửi email cảnh báo tới: ' + userEmail);
+      const res = await sendEmailApi(userEmail, subject, message);
+      if (res.success) {
+        showToast(`📧 Đã gửi email cảnh báo tới: ${userEmail}`);
+      }
+    }
+
+    async function testSendEmail() {
+      const emailInput = document.getElementById('cfg-user-email').value.trim();
+      if (!emailInput || !emailInput.includes('@')) {
+        alert('Vui lòng nhập địa chỉ Email hợp lệ (ví dụ: ban_email@gmail.com)!');
+        return;
+      }
+      const btn = document.getElementById('btn-test-email');
+      const oldHtml = btn.innerHTML;
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Đang gửi qua Gmail SMTP...</span>`;
+      btn.disabled = true;
+
+      const subject = "🌱 [TEST] Thử nghiệm tính năng cảnh báo Smart Garden IoT";
+      const message = `Xin chào!\nĐây là email kiểm tra tính năng gửi cảnh báo từ Hệ thống Smart Garden IoT.\nNếu bạn nhận được email này, tính năng gửi cảnh báo qua Email đã hoạt động 100% hoàn hảo!\nThời gian gửi: ${new Date().toLocaleString('vi-VN')}`;
+
+      const res = await sendEmailApi(emailInput, subject, message);
+      btn.innerHTML = oldHtml;
+      btn.disabled = false;
+
+      if (res.success) {
+        showToast(`✅ Đã gửi email thử nghiệm thành công tới: ${emailInput}!`);
+        alert(`✅ ĐÃ GỬI EMAIL THÀNH CÔNG!\n\nHệ thống đã gửi email thử nghiệm tới: ${emailInput}.\nHãy kiểm tra hộp thư đến (Inbox) hoặc mục Spam/Thư rác.`);
+      } else {
+        alert(`❌ Không thể gửi email: ${res.error || 'Vui lòng kiểm tra lại kết nối mạng hoặc bật máy chủ server.py'}!`);
+      }
+    }
+
+    function saveEmailConfig() {
+      const emailInput = document.getElementById('cfg-user-email').value.trim();
+      const enabled = document.getElementById('cfg-email-enabled').checked;
+
+      if (enabled && (!emailInput || !emailInput.includes('@'))) {
+        alert('Vui lòng nhập email hợp lệ trước khi lưu!');
+        return;
+      }
+
+      userEmail = emailInput;
+      isEmailEnabled = enabled;
+
+      localStorage.setItem('cfg_user_email', userEmail);
+      localStorage.setItem('cfg_email_enabled', isEmailEnabled);
+
+      toggleModal('modal-email');
+      showToast(isEmailEnabled ? `Đã lưu email cảnh báo: ${userEmail}` : "Đã tắt tính năng gửi email.");
+      updateEmailBtnUI();
+    }
+
+    function updateEmailBtnUI() {
+      const btnText = document.getElementById('btn-email-text');
+      if (btnText) {
+        btnText.innerText = (isEmailEnabled && userEmail) ? "Email: Bật" : "Email Cảnh Báo";
+      }
+    }
+
+    // 6. ĐẢO CHIỀU CẢM BIẾN MƯA
+    function toggleRainInvert() {
+      isRainInverted = !isRainInverted;
+      localStorage.setItem('cfg_rain_inverted', isRainInverted);
+      updateRainInvertBtnUI();
+      showToast(isRainInverted ? "Đã bật Đảo Chiều (Khô = 0%, Ướt = 100%)" : "Đã tắt Đảo Chiều");
+      
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicThresholds, JSON.stringify({ rain_invert: isRainInverted }));
+      }
+      syncToFirebase({ rain_invert: isRainInverted });
+    }
+
+    function updateRainInvertBtnUI() {
+      const btnText = document.getElementById('rain-invert-btn-text');
+      if (btnText) {
+        btnText.innerText = isRainInverted ? "Đang đảo chiều (Khô = 0%)" : "Đảo chiều cảm biến";
+      }
+    }
+
+    // 7. ĐIỀU KHIỂN CHẾ ĐỘ (CỐ ĐỊNH THEO Ý NGƯỜI DÙNG, KHÔNG BỊ NHẢY)
+    function setMode(mode) {
+      currentMode = mode;
+      userLockedMode = mode; // Khóa chế độ theo thao tác người dùng
+      modeLockExpires = Date.now() + 20000; // Khóa 20s chống phản hồi cũ đè ngược
+      applyModeUI(mode);
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicControl, JSON.stringify({ mode: mode }));
+      }
+      syncToFirebase({ cmd_mode: mode, mode: mode }); // Gửi cả cmd_mode và mode lên Firebase
+      showToast(mode === 'auto' ? "Đã chuyển sang Tự Động (Auto)" : "Đã chuyển sang Thủ Công (Manual)");
+    }
+
+    function applyModeUI(mode) {
+      currentMode = mode;
+      const isAuto = (mode === 'auto');
+      const btnAuto = document.getElementById('btn-mode-auto');
+      const btnManual = document.getElementById('btn-mode-manual');
+      const modeTitle = document.getElementById('mode-title');
+      const modeIcon = document.getElementById('mode-icon');
+      const manualNotice = document.getElementById('manual-notice');
+
+      if (isAuto) {
+        btnAuto.className = "flex-1 md:flex-initial px-5 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center space-x-2 bg-emerald-600 text-white shadow-md";
+        btnManual.className = "flex-1 md:flex-initial px-5 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center space-x-2 text-slate-400 hover:text-white";
+        modeTitle.innerHTML = '<span>TỰ ĐỘNG (AUTO)</span><span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>';
+        modeIcon.className = "fa-solid fa-robot text-2xl text-emerald-400";
+        manualNotice.innerText = "Chế độ Tự động (Gạt công tắc sẽ tự chuyển Thủ công)";
+        manualNotice.className = "text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400";
+      } else {
+        btnManual.className = "flex-1 md:flex-initial px-5 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center space-x-2 bg-amber-600 text-white shadow-md";
+        btnAuto.className = "flex-1 md:flex-initial px-5 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center space-x-2 text-slate-400 hover:text-white";
+        modeTitle.innerHTML = '<span>THỦ CÔNG (MANUAL)</span><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>';
+        modeIcon.className = "fa-solid fa-hand text-2xl text-amber-400";
+        manualNotice.innerText = "Chế độ Thủ công: Bật/tắt 5 LED tự do";
+        manualNotice.className = "text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30";
+      }
+    }
+
+    // 8. ĐIỀU KHIỂN BẬT / TẮT 5 LED (MƯỢT MÀ TỨC THÌ, TỰ CHUYỂN THỦ CÔNG)
+    function toggleLed(key, isChecked) {
+      currentMode = 'manual';
+      userLockedMode = 'manual';
+      modeLockExpires = Date.now() + 15000;
+      applyModeUI('manual');
+
+      const cleanKey = key.replace(/^led_/, '');
+      const val = isChecked ? 1 : 0;
+      
+      // KHÓA SWITCH 5 GIÂY: Chống dữ liệu phản hồi cũ làm nảy switch lại
+      userSwitchLocks[cleanKey] = { val: val, expires: Date.now() + 5000 };
+      currentLeds[cleanKey] = val;
+      updateSingleLedUI(cleanKey, val);
+
+      // 1. Kênh MQTT: Gửi tức thì trong 20ms
+      const mqttPayload = { mode: "manual" };
+      mqttPayload[`led_${cleanKey}`] = val;
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicControl, JSON.stringify(mqttPayload));
+      }
+
+      // 2. Kênh Firebase: Gửi cả key cmd_ và key trực tiếp để ESP32 bắt ngay lập tức
+      const fbPayload = { 
+        mode: 'manual',
+        cmd_mode: 'manual'
+      };
+      fbPayload[`cmd_led_${cleanKey}`] = val;
+      fbPayload[`led_${cleanKey}`] = val;
+      syncToFirebase(fbPayload);
+
+      showToast(val === 1 ? `Đã BẬT ${cleanKey}` : `Đã TẮT ${cleanKey}`);
+    }
+
+    function updateLedSwitchesUI(leds) {
+      for (const [key, val] of Object.entries(leds)) {
+        updateSingleLedUI(key, val);
+      }
+    }
+
+    function updateSingleLedUI(key, state) {
+      const rawKey = key.replace(/^led_/, '');
+      const cleanKey = rawKey.replace('_', '-');
+      const sw = document.getElementById(`switch-led-${cleanKey}`);
+      const icon = document.getElementById(`icon-led-${cleanKey}`);
+      
+      // Nếu switch đang trong thời gian người dùng vừa gạt, giữ tuyệt đối trạng thái của người dùng
+      if (userSwitchLocks[rawKey] && Date.now() < userSwitchLocks[rawKey].expires) {
+        state = userSwitchLocks[rawKey].val;
+      }
+
+      if (sw) sw.checked = (state === 1);
+      if (icon) {
+        if (state === 1) {
+          icon.className = "w-10 h-10 rounded-lg bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30";
+        } else {
+          icon.className = "w-10 h-10 rounded-lg bg-slate-800 text-slate-500 flex items-center justify-center";
+        }
+      }
+    }
+
+    // ================= ĐIỀU KHIỂN SERVO MÁI CHE GPIO 18 =================
+    let currentDir = 'UP';
+    let gocLen = 140;
+    let gocXuong = 90;
+    let lastSent = -1;
+    let sending = false;
+    let queued = null;
+
+    function updateDirUI() {
+      const bUp = document.getElementById('btnDirUp');
+      const bDown = document.getElementById('btnDirDown');
+      if (bUp) bUp.className = 'dir-btn py-2.5 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer' + (currentDir === 'UP' ? ' active-up' : '');
+      if (bDown) bDown.className = 'dir-btn py-2.5 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer' + (currentDir === 'DOWN' ? ' active-down' : '');
+    }
+
+    function selectDir(dir) {
+      servoLockExpires = Date.now() + 4000;
+      currentDir = dir;
+      updateDirUI();
+
+      const target = (dir === 'UP') ? gocLen : gocXuong;
+      const slider = document.getElementById('angleSlider');
+      const sliderVal = document.getElementById('sliderVal');
+      const msgBox = document.getElementById('msgBox');
+      if (slider) slider.value = target;
+      if (sliderVal) sliderVal.innerText = `${target}°`;
+      lastSent = target;
+
+      // 1. Gửi lệnh qua MQTT
+      const mqttPayload = { servo_move: dir };
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicControl, JSON.stringify(mqttPayload));
+      }
+
+      // 2. Gửi lệnh qua Firebase
+      syncToFirebase({
+        cmd_servo_move: dir,
+        servo_move: dir,
+        servo_dir: dir
+      });
+
+      if (msgBox) {
+        msgBox.innerText = (dir === 'UP') ? "Đang kéo LÊN (nhướn 2 nhịp chia đôi góc)..." : "Đang kéo XUỐNG (che mưa)...";
+      }
+      showToast(dir === 'UP' ? "Kéo mái che LÊN (2 nhịp)" : "Kéo mái che XUỐNG (che mưa)");
+    }
+
+    let fbServoTimer = null;
+    function sendPreviewAngle(deg) {
+      servoLockExpires = Date.now() + 3500;
+      if (sending) { queued = deg; return; }
+      if (deg === lastSent) return;
+      sending = true;
+      lastSent = deg;
+
+      const curEl = document.getElementById('curAngle');
+      if (curEl) curEl.innerText = `${deg}°`;
+
+      // Gửi preview qua MQTT tức thì (~20ms)
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicControl, JSON.stringify({ servo_preview: deg }));
+      }
+      // Gom nhịp gửi Firebase PATCH mỗi 200ms để không nghẽn mạng khi kéo nhanh
+      clearTimeout(fbServoTimer);
+      fbServoTimer = setTimeout(() => {
+        syncToFirebase({ cmd_servo_preview: deg, servo_angle: deg });
+      }, 200);
+
+      setTimeout(() => {
+        sending = false;
+        if (queued !== null && queued !== lastSent) {
+          const next = queued;
+          queued = null;
+          sendPreviewAngle(next);
+        }
+      }, 45);
+    }
+
+    function saveAngle(type) {
+      const slider = document.getElementById('angleSlider');
+      const deg = parseInt(slider ? slider.value : 140, 10);
+      const msgBox = document.getElementById('msgBox');
+
+      if (type === 'UP') {
+        gocLen = deg;
+        if (mqttClient && mqttClient.connected) {
+          mqttClient.publish(topicControl, JSON.stringify({ save_len: deg }));
+        }
+        syncToFirebase({ cmd_save_len: deg, goc_len_luu: deg });
+        if (msgBox) msgBox.innerText = `Đã lưu góc LÊN: ${deg}°`;
+        showToast(`Đã lưu góc LÊN: ${deg}° vào Flash ESP32!`);
+      } else {
+        gocXuong = deg;
+        if (mqttClient && mqttClient.connected) {
+          mqttClient.publish(topicControl, JSON.stringify({ save_xuong: deg }));
+        }
+        syncToFirebase({ cmd_save_xuong: deg, goc_xuong_luu: deg });
+        if (msgBox) msgBox.innerText = `Đã lưu góc XUỐNG: ${deg}°`;
+        showToast(`Đã lưu góc XUỐNG: ${deg}° vào Flash ESP32!`);
+      }
+
+      const spInline = document.getElementById('savedInline');
+      const spPair = document.getElementById('savedPair');
+      if (spInline) spInline.innerText = `${gocLen}° / ${gocXuong}°`;
+      if (spPair) spPair.innerText = `Lên: ${gocLen}° | Xuống: ${gocXuong}°`;
+    }
+
+    function controlRoof(action) {
+      if (action === 'ra' || action === 'down' || action === 'xuong') {
+        selectDir('DOWN');
+      } else {
+        selectDir('UP');
+      }
+    }
+
+    // 9. CÀI ĐẶT THANH TRƯỢT NGƯỠNG
+    function onSliderInput(sliderId, labelId, unit) {
+      isUserEditingThresholds = true;
+      clearTimeout(editingTimeout);
+      editingTimeout = setTimeout(() => { isUserEditingThresholds = false; }, 15000);
+
+      const val = document.getElementById(sliderId).value;
+      document.getElementById(labelId).innerText = `${val} ${unit}`;
+      
+      if (sliderId === 'th-temp') currentThresholds.temp = parseFloat(val);
+      if (sliderId === 'th-hum')  currentThresholds.hum  = parseFloat(val);
+      if (sliderId === 'th-rain') currentThresholds.rain = parseInt(val);
+      if (sliderId === 'th-light')currentThresholds.light= parseInt(val);
+      if (sliderId === 'th-soil') currentThresholds.soil = parseInt(val);
+    }
+
+    function applyThresholdsUI(th) {
+      if (th.temp !== undefined) {
+        document.getElementById('th-temp').value = th.temp;
+        document.getElementById('label-th-temp').innerText = `${th.temp} °C`;
+        currentThresholds.temp = th.temp;
+      }
+      if (th.hum !== undefined) {
+        document.getElementById('th-hum').value = th.hum;
+        document.getElementById('label-th-hum').innerText = `${th.hum} %`;
+        currentThresholds.hum = th.hum;
+      }
+      if (th.rain !== undefined) {
+        document.getElementById('th-rain').value = th.rain;
+        document.getElementById('label-th-rain').innerText = `${th.rain} %`;
+        currentThresholds.rain = th.rain;
+      }
+      if (th.light !== undefined) {
+        document.getElementById('th-light').value = th.light;
+        document.getElementById('label-th-light').innerText = `${th.light} %`;
+        currentThresholds.light = th.light;
+      }
+      if (th.soil !== undefined) {
+        document.getElementById('th-soil').value = th.soil;
+        document.getElementById('label-th-soil').innerText = `${th.soil} %`;
+        currentThresholds.soil = th.soil;
+      }
+    }
+
+    function saveThresholds() {
+      const payloadObj = {
+        temp: parseFloat(document.getElementById('th-temp').value),
+        hum: parseFloat(document.getElementById('th-hum').value),
+        rain: parseInt(document.getElementById('th-rain').value),
+        light: parseInt(document.getElementById('th-light').value),
+        soil: parseInt(document.getElementById('th-soil').value),
+        rain_invert: isRainInverted
+      };
+
+      currentThresholds = { ...payloadObj };
+
+      const btn = document.getElementById('btn-save-thresholds');
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-lg"></i><span>ĐANG LƯU XUỐNG ESP32...</span>`;
+
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicThresholds, JSON.stringify(payloadObj), { retain: true });
+      }
+      syncToFirebase({ cmd_thresholds: payloadObj, thresholds: payloadObj });
+
+      if ("vibrate" in navigator) navigator.vibrate(50);
+
+      setTimeout(() => {
+        btn.innerHTML = `<i class="fa-solid fa-circle-check text-lg"></i><span>ĐÃ LƯU FLASH THÀNH CÔNG!</span>`;
+        btn.classList.add('from-green-600', 'to-emerald-500');
+        showToast("Đã lưu ngưỡng thành công vào bộ nhớ Flash ESP32 & Firebase!");
+
+        setTimeout(() => {
+          btn.innerHTML = `<i class="fa-solid fa-floppy-disk text-lg"></i><span>LƯU CẤU HÌNH NGƯỠNG XUỐNG ESP32</span>`;
+          isUserEditingThresholds = false;
+        }, 2000);
+      }, 400);
+    }
+
+    function syncToFirebase(obj) {
+      if (!firebaseUrl) return;
+      fetch(firebaseUrl, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj)
+      }).catch(e => {
+        if (window.location.protocol.startsWith('http')) {
+          fetch('/api/garden-control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(obj)
+          }).catch(err => {});
+        }
+      });
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast-msg');
+      const text = document.getElementById('toast-text');
+      text.innerText = msg;
+      toast.classList.remove('translate-x-full', 'opacity-0');
+      toast.classList.add('translate-x-0', 'opacity-100');
+      setTimeout(() => {
+        toast.classList.add('translate-x-full', 'opacity-0');
+        toast.classList.remove('translate-x-0', 'opacity-100');
+      }, 3000);
+    }
+
+    function toggleModal(id) {
+      document.getElementById(id).classList.toggle('hidden');
+    }
+
+    function saveAdvancedConfig() {
+      mqttHost    = document.getElementById('cfg-mqtt-host').value.trim();
+      mqttPort    = parseInt(document.getElementById('cfg-mqtt-port').value.trim());
+      topicPrefix = document.getElementById('cfg-mqtt-prefix').value.trim();
+      firebaseUrl = document.getElementById('cfg-firebase-url').value.trim();
+
+      localStorage.setItem('cfg_mqtt_host', mqttHost);
+      localStorage.setItem('cfg_mqtt_port', mqttPort);
+      localStorage.setItem('cfg_mqtt_prefix', topicPrefix);
+      localStorage.setItem('cfg_firebase_url', firebaseUrl);
+
+      toggleModal('modal-settings');
+      connectMQTT();
+      pollFirebaseData();
+      showToast("Đã lưu cấu hình kết nối mới!");
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const angleSlider = document.getElementById('angleSlider');
+      if (angleSlider) {
+        angleSlider.addEventListener('input', () => {
+          const deg = parseInt(angleSlider.value, 10);
+          const sVal = document.getElementById('sliderVal');
+          if (sVal) sVal.innerText = `${deg}°`;
+          sendPreviewAngle(deg);
+        });
+      }
+      updateDirUI();
+      initChart();
+      updateRainInvertBtnUI();
+      updateEmailBtnUI();
+      
+      // 1. KẾT NỐI LIVE STREAM TỨC THÌ TỪ FIREBASE (SERVER-SENT EVENTS - 0ms LAG)
+      initFirebaseLiveStream();
+      pollFirebaseData();
+      setInterval(pollFirebaseData, 1000); // Polling siêu tốc mỗi 1 giây dự phòng
+
+      // 2. Kết nối MQTT song song
+      connectMQTT();
+
+      document.getElementById('cfg-mqtt-host').value = mqttHost;
+      document.getElementById('cfg-mqtt-port').value = mqttPort;
+      document.getElementById('cfg-mqtt-prefix').value = topicPrefix;
+      document.getElementById('cfg-firebase-url').value = firebaseUrl;
+
+      // Điền sẵn cấu hình Email nếu đã lưu
+      if (document.getElementById('cfg-user-email')) {
+        document.getElementById('cfg-user-email').value = userEmail;
+      }
+      if (document.getElementById('cfg-email-enabled')) {
+        document.getElementById('cfg-email-enabled').checked = isEmailEnabled;
+      }
+
+      if ("Notification" in window && Notification.permission === "granted") {
+        document.getElementById('notif-btn-text').innerText = "Chuông Bật";
+        document.getElementById('btn-request-notif').className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-800 text-emerald-200 border border-emerald-600 transition flex items-center space-x-1.5";
+      }
+    });
+  </script>
+</body>
+</html>
