@@ -491,6 +491,43 @@
               </label>
             </div>
 
+            <!-- HẸN GIỜ THIẾT BỊ (MANUAL) -->
+            <div class="p-3.5 rounded-xl bg-slate-900/80 border border-cyan-500/30 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                  <i class="fa-solid fa-clock"></i> Hẹn Giờ Thiết Bị (Manual)
+                </span>
+                <span class="text-[10px] text-slate-400">Chạy trực tiếp trên ESP32</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <select id="timer-device" class="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-white">
+                  <option value="bom_dat">Bơm Tưới Đất (GPIO 15)</option>
+                  <option value="bom">Bơm Nhiệt (GPIO 16)</option>
+                  <option value="den">Phun Ẩm (GPIO 17)</option>
+                  <option value="sang">Đèn Chiếu Sáng (GPIO 19)</option>
+                  <option value="mua">Mái Che Mưa (GPIO 18)</option>
+                </select>
+                <select id="timer-action" class="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-white">
+                  <option value="on_then_off">BẬT ngay → Tự TẮT sau</option>
+                  <option value="after_on">Đếm ngược → BẬT sau</option>
+                  <option value="after_off">Đếm ngược → TẮT sau</option>
+                  <option value="at_on">Hẹn theo giờ → BẬT lúc</option>
+                  <option value="at_off">Hẹn theo giờ → TẮT lúc</option>
+                </select>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <input type="text" id="timer-hms" value="00:00:30" placeholder="00:00:00" maxlength="8" class="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-cyan-300 font-mono font-bold text-center tracking-wider">
+                <button type="button" onclick="setQuickTimer(10)" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">10s</button>
+                <button type="button" onclick="setQuickTimer(30)" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">30s</button>
+                <button type="button" onclick="setQuickTimer(60)" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">1p</button>
+                <button type="button" onclick="setQuickTimer(300)" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">5p</button>
+                <button type="button" onclick="startDeviceTimer()" class="ml-auto px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition flex items-center gap-1.5 shadow">
+                  <i class="fa-solid fa-play"></i> Đặt Hẹn Giờ
+                </button>
+              </div>
+              <div id="active-timers-list" class="space-y-1.5 text-xs"></div>
+            </div>
+
           </div>
         </div>
       </div>
@@ -618,6 +655,25 @@
 
       <div class="w-full h-72 md:h-80 relative">
         <canvas id="gardenChart"></canvas>
+      </div>
+    </div>
+
+    <!-- ================= LỊCH SỬ CẢNH BÁO & BẬT/TẮT THIẾT BỊ ================= -->
+    <div class="glass-card rounded-2xl p-5 shadow-xl">
+      <div class="flex items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-clock-rotate-left text-cyan-400"></i>
+            Lịch Sử Cảnh Báo & Bật/Tắt Thiết Bị
+          </h2>
+          <p class="text-xs text-slate-400">Ghi lại tự động mọi sự kiện vượt ngưỡng, bật/tắt bơm, đèn, mái che</p>
+        </div>
+        <button onclick="clearWebHistory()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-300 border border-slate-700 transition flex items-center gap-1.5">
+          <i class="fa-solid fa-trash-can"></i><span>Xóa Lịch Sử</span>
+        </button>
+      </div>
+      <div id="history-list" class="max-h-64 overflow-y-auto space-y-2 pr-1 text-xs">
+        <div class="text-slate-500 text-center py-6">Chưa có sự kiện nào được ghi nhận...</div>
       </div>
     </div>
 
@@ -1126,6 +1182,17 @@
           applyThresholdsUI(data.thresholds);
         }
 
+        // Đồng bộ bộ đếm hẹn giờ đang chạy trên ESP32
+        if (data.timers && typeof data.timers === 'object') {
+          syncEspTimersUI(data.timers);
+        }
+
+        // Đồng bộ sự kiện lịch sử mới nhất từ ESP32
+        if (data.last_event_id !== undefined && data.last_event_id !== lastEspEventId && data.last_event) {
+          lastEspEventId = data.last_event_id;
+          addWebHistory(data.last_event_type || 'device', `[ESP32] ${data.last_event}`);
+        }
+
         checkSafetyAlerts(temp, hum, rain, light, soil);
       } catch (e) {
         console.error('[Lỗi parse status]', e);
@@ -1156,7 +1223,11 @@
       if (alerts.length > 0) {
         banner.classList.remove('hidden');
         bannerText.innerHTML = alerts.join(" &bull; ");
-        if (!isAlarmTriggered) playAlarmSound();
+        if (!isAlarmTriggered) {
+          playAlarmSound();
+          isAlarmTriggered = true;
+          addWebHistory('alert', alerts.join(' | ').replace(/<[^>]*>/g, ''));
+        }
 
         const now = Date.now();
         if (now - lastNotifTime > 40000) {
@@ -1414,6 +1485,7 @@ Hệ thống đang tự động kích hoạt thiết bị tương ứng để b�
         mqttClient.publish(topicControl, JSON.stringify({ mode: mode }));
       }
       syncToFirebase({ cmd_mode: mode, mode: mode }); // Gửi cả cmd_mode và mode lên Firebase
+      addWebHistory('mode', mode === 'auto' ? 'Chuyển sang chế độ Tự Động (AUTO)' : 'Chuyển sang chế độ Thủ Công (MANUAL)');
       showToast(mode === 'auto' ? "Đã chuyển sang Tự Động (Auto)" : "Đã chuyển sang Thủ Công (Manual)");
     }
 
@@ -1474,6 +1546,8 @@ Hệ thống đang tự động kích hoạt thiết bị tương ứng để b�
       fbPayload[`led_${cleanKey}`] = val;
       syncToFirebase(fbPayload);
 
+      const devNames = { bom: 'Bơm Nhiệt (16)', den: 'Phun Ẩm (17)', mua: 'Mái Che Mưa (18)', sang: 'Đèn Sáng (19)', bom_dat: 'Bơm Đất (15)' };
+      addWebHistory('device', `${val === 1 ? 'BẬT' : 'TẮT'} ${devNames[cleanKey] || cleanKey}`);
       showToast(val === 1 ? `Đã BẬT ${cleanKey}` : `Đã TẮT ${cleanKey}`);
     }
 
@@ -1548,6 +1622,7 @@ Hệ thống đang tự động kích hoạt thiết bị tương ứng để b�
       if (msgBox) {
         msgBox.innerText = (dir === 'UP') ? "Đang kéo LÊN (nhướn 2 nhịp chia đôi góc)..." : "Đang kéo XUỐNG (che mưa)...";
       }
+      addWebHistory('mode', dir === 'UP' ? `Kéo Mái Che LÊN (${target}°)` : `Hạ Mái Che XUỐNG (${target}°)`);
       showToast(dir === 'UP' ? "Kéo mái che LÊN (2 nhịp)" : "Kéo mái che XUỐNG (che mưa)");
     }
 
@@ -1747,7 +1822,201 @@ Hệ thống đang tự động kích hoạt thiết bị tương ứng để b�
       showToast("Đã lưu cấu hình kết nối mới!");
     }
 
+    // ================= HẸN GIỜ THIẾT BỊ (MANUAL) =================
+    const timerDevNames = {
+      bom_dat: 'Bơm Đất (15)',
+      bom: 'Bơm Nhiệt (16)',
+      den: 'Phun Ẩm (17)',
+      sang: 'Đèn Sáng (19)',
+      mua: 'Mái Che (18)'
+    };
+    let activeTimers = {}; // { key: { remain: sec, actionTxt: string, lockUntil: ts } }
+
+    function formatHMS(totalSec) {
+      const h = String(Math.floor(totalSec / 3600)).padStart(2, '0');
+      const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
+      const s = String(totalSec % 60).padStart(2, '0');
+      return `${h}:${m}:${s}`;
+    }
+
+    function parseHMS(str) {
+      const clean = (str || '').trim();
+      const parts = clean.split(':').map(x => parseInt(x, 10));
+      if (parts.length !== 3 || parts.some(isNaN)) return null;
+      const [h, m, s] = parts;
+      if (h < 0 || h > 23 || m < 0 || m > 59 || s < 0 || s > 59) return null;
+      return { h, m, s, total: h * 3600 + m * 60 + s };
+    }
+
+    function setQuickTimer(sec) {
+      const inp = document.getElementById('timer-hms');
+      if (inp) inp.value = formatHMS(sec);
+    }
+
+    function startDeviceTimer() {
+      const key = document.getElementById('timer-device').value;
+      const mode = document.getElementById('timer-action').value;
+      const rawHms = document.getElementById('timer-hms').value;
+      const parsed = parseHMS(rawHms);
+      if (!parsed) {
+        showToast("Vui lòng nhập đúng định dạng 00:00:00 (Giờ:Phút:Giây)!");
+        return;
+      }
+
+      let sec = parsed.total;
+      let targetAction = 0;
+      let actionLabel = '';
+
+      if (mode === 'at_on' || mode === 'at_off') {
+        // Tính số giây từ hiện tại đến giờ đích HH:MM:SS
+        const now = new Date();
+        const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parsed.h, parsed.m, parsed.s);
+        if (target <= now) target.setDate(target.getDate() + 1);
+        sec = Math.max(1, Math.round((target - now) / 1000));
+        targetAction = (mode === 'at_on') ? 1 : 0;
+        const verb = (key === 'mua') ? (targetAction ? 'XUỐNG' : 'LÊN') : (targetAction ? 'BẬT' : 'TẮT');
+        actionLabel = `Hẹn ${verb} lúc ${formatHMS(parsed.total)} (còn`;
+      } else {
+        if (sec <= 0) {
+          showToast("Thời gian đếm ngược phải lớn hơn 00:00:00!");
+          return;
+        }
+        if (mode === 'on_then_off') {
+          toggleLed(key, true);
+          targetAction = 0;
+          actionLabel = (key === 'mua') ? 'Tự LÊN sau' : 'Tự TẮT sau';
+        } else if (mode === 'after_on') {
+          targetAction = 1;
+          actionLabel = (key === 'mua') ? 'Hẹn XUỐNG sau' : 'Hẹn BẬT sau';
+        } else {
+          targetAction = 0;
+          actionLabel = (key === 'mua') ? 'Hẹn LÊN sau' : 'Hẹn TẮT sau';
+        }
+      }
+
+      activeTimers[key] = { remain: sec, label: actionLabel, lockUntil: Date.now() + 4000 };
+      renderTimersUI();
+
+      const cmdObj = { key: key, action: targetAction, seconds: sec };
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicControl, JSON.stringify({ mode: 'manual', timer: cmdObj }));
+      }
+      syncToFirebase({ mode: 'manual', cmd_mode: 'manual', cmd_timer: cmdObj });
+
+      addWebHistory('mode', `Hẹn giờ ${timerDevNames[key] || key}: ${actionLabel} ${formatHMS(sec)}`);
+      showToast(`Đã đặt hẹn giờ ${timerDevNames[key] || key} (${formatHMS(sec)})!`);
+    }
+
+    function cancelDeviceTimer(key) {
+      delete activeTimers[key];
+      renderTimersUI();
+      const cmdObj = { key: key, action: 0, seconds: 0 };
+      if (mqttClient && mqttClient.connected) {
+        mqttClient.publish(topicControl, JSON.stringify({ timer: cmdObj }));
+      }
+      syncToFirebase({ cmd_timer: cmdObj });
+      addWebHistory('mode', `Hủy hẹn giờ ${timerDevNames[key] || key}`);
+      showToast(`Đã hủy hẹn giờ ${timerDevNames[key] || key}`);
+    }
+
+    function syncEspTimersUI(espTimers) {
+      const now = Date.now();
+      for (const [k, rem] of Object.entries(espTimers)) {
+        if (activeTimers[k] && now < activeTimers[k].lockUntil) continue;
+        if (rem > 0) {
+          activeTimers[k] = {
+            remain: rem,
+            label: (activeTimers[k] && activeTimers[k].label) ? activeTimers[k].label : 'Đang đếm ngược',
+            lockUntil: 0
+          };
+        } else if (activeTimers[k]) {
+          delete activeTimers[k];
+        }
+      }
+      renderTimersUI();
+    }
+
+    function renderTimersUI() {
+      const box = document.getElementById('active-timers-list');
+      if (!box) return;
+      const entries = Object.entries(activeTimers).filter(([_, v]) => v.remain > 0);
+      if (entries.length === 0) {
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = entries.map(([k, v]) => {
+        const hmsStr = formatHMS(v.remain);
+        return `<div class="flex items-center justify-between bg-cyan-950/50 border border-cyan-500/30 rounded-lg px-2.5 py-1.5">
+          <span class="text-cyan-200 font-semibold">⏱️ ${timerDevNames[k] || k}: ${v.label} <b class="text-amber-300 font-mono">${hmsStr}</b></span>
+          <button type="button" onclick="cancelDeviceTimer('${k}')" class="text-rose-400 hover:text-rose-300 font-bold px-1.5">Hủy</button>
+        </div>`;
+      }).join('');
+    }
+
+    setInterval(() => {
+      let changed = false;
+      for (const k of Object.keys(activeTimers)) {
+        if (activeTimers[k].remain > 0) {
+          activeTimers[k].remain--;
+          changed = true;
+          if (activeTimers[k].remain === 0) delete activeTimers[k];
+        }
+      }
+      if (changed) renderTimersUI();
+    }, 1000);
+
+    // ================= LỊCH SỬ CẢNH BÁO & BẬT/TẮT THIẾT BỊ =================
+    let eventHistory = [];
+    try {
+      eventHistory = JSON.parse(localStorage.getItem('garden_event_history') || '[]');
+    } catch(e) { eventHistory = []; }
+    let lastEspEventId = -1;
+
+    function addWebHistory(type, text) {
+      const timeStr = new Date().toLocaleTimeString('vi-VN', { hour12: false });
+      if (eventHistory.length > 0 && eventHistory[0].text === text && eventHistory[0].time === timeStr) return;
+      eventHistory.unshift({ time: timeStr, type: type || 'device', text: text });
+      if (eventHistory.length > 50) eventHistory.pop();
+      try { localStorage.setItem('garden_event_history', JSON.stringify(eventHistory)); } catch(e){}
+      renderHistoryList();
+    }
+
+    function clearWebHistory() {
+      eventHistory = [];
+      try { localStorage.removeItem('garden_event_history'); } catch(e){}
+      renderHistoryList();
+      showToast("Đã xóa lịch sử sự kiện!");
+    }
+
+    function renderHistoryList() {
+      const box = document.getElementById('history-list');
+      if (!box) return;
+      if (eventHistory.length === 0) {
+        box.innerHTML = '<div class="text-slate-500 text-center py-6">Chưa có sự kiện nào được ghi nhận...</div>';
+        return;
+      }
+      box.innerHTML = eventHistory.map(item => {
+        let badgeCls = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+        let badgeTxt = 'THIẾT BỊ';
+        if (item.type === 'alert') {
+          badgeCls = 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+          badgeTxt = 'CẢNH BÁO';
+        } else if (item.type === 'mode') {
+          badgeCls = 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
+          badgeTxt = 'HỆ THỐNG';
+        }
+        return `<div class="flex items-center justify-between gap-2 bg-slate-900/70 border border-slate-800/80 rounded-xl px-3 py-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold border shrink-0 ${badgeCls}">${badgeTxt}</span>
+            <span class="text-slate-200 truncate">${item.text}</span>
+          </div>
+          <span class="text-slate-400 font-mono shrink-0">${item.time}</span>
+        </div>`;
+      }).join('');
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
+      renderHistoryList();
       const angleSlider = document.getElementById('angleSlider');
       if (angleSlider) {
         angleSlider.addEventListener('input', () => {
